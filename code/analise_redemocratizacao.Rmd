@@ -124,7 +124,7 @@ ggplot(proj_ministros,
        aes(x=dim, y=coord, fill=indicacao, colour=indicacao)) + 
   geom_dotplot(binaxis='y', stackdir='center', stackratio=1, dotsize=0.5) +
   labs(fill = "Indicação presidencial", colour = "Indicação presidencial")+
-  geom_text_repel(aes(label = ministro), size = 3, angle = 20)+
+  geom_text_repel(aes(label = ministro), size = 2.5, angle = 20)+
   labs(title = " Coordenadas dos ministros por indicação presidencial", 
        x = "dimensão", 
        y = "coordenada")+
@@ -139,7 +139,7 @@ p_magistratura = ggplot(proj_ministros,
        aes(x=dim, y=coord, fill=magistratura, colour=magistratura)) + 
   geom_dotplot(binaxis='y', stackdir='center', stackratio=1, dotsize=0.5) +
   labs(fill = "Magistratura", colour = "Magistratura")+
-  geom_text_repel(aes(label = ministro), size = 3, angle = 20)+
+  geom_text_repel(aes(label = ministro), size = 2.5, angle = 20)+
   labs(title = " Coordenadas dos ministros por carreira na magistratura", 
        x = "dimensão", 
        y = "coordenada")+
