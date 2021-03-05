@@ -1,0 +1,161 @@
+```{r message = FALSE, warnings = FALSE}
+library(ggrepel)
+library(gridExtra)
+library(patchwork)
+library(magrittr)
+library(tidyverse)
+library(wnominate)
+```
+
+# Codificação dos votos em VENCEDOR ou VENCIDO
+
+```{r}
+votos <- read_csv("../data/votos.csv")
+
+# AU (ministro ausente) -> AU
+# NI (not in legis) -> NI
+# Se voto é igual ao resultado -> VENCEDOR
+# Caso contrário -> VENCIDO
+classifica_voto = function(voto, resultado)
+{
+  case_when(voto == "AU" ~ voto,
+            voto == "NI" ~ voto,
+            voto == resultado ~ "VENCEDOR",
+            voto != resultado ~ "VENCIDO")
+}
+
+# Classifica os votos de cada ministro
+for(jj in 13:41) 
+{
+  votos[,jj] <- classifica_voto(unlist(votos[,jj]), votos$RESULTADO)
+}
+``` 
+
+# Preparo dos dados para uso do W-nominate
+
+```{r}
+# Transforma dados em variáveis categóricas
+for(jj in c(2,4,7:41)) votos[,jj] <- votos[,jj] %>%  unlist() %>% as.factor()
+
+# m_votos: matriz de votos
+m_votos = votos[,13:41] %>% 
+  t() %>% 
+  as.matrix()
+ministros = row.names(m_votos)
+
+# legis_data: características dos ministros
+legis_data <- read_csv("../data/legis_data.csv") %>% 
+  as.matrix()
+```
+
+# Ajuste do R-nominate
+
+```{r}
+votacoes <-matrix(votos$RP, 1, length(votos$RP))
+rc_total <- rollcall(m_votos, 
+                     yea = c("VENCEDOR"), 
+                     nay = c("VENCIDO"),
+                     missing = c("AU", "NA"),
+                     notInLegis = "NI",
+                     legis.names = ministros,
+                     vote.names = votacoes,
+                     legis.data = legis_data,
+                     desc = "Votos RP's STF nos anos de 1978 a 1988.",
+                     source = "Fabiana Luci de Oliveira")
+rc_total
+# número de votos usados no modelo por categoria em legis.data
+summary(rc_total$legis.data) 
+
+result_total <- wnominate(rc_total,
+                          polarity = c(2,2,2),
+                          dims = 3,
+                          minvotes = 11)
+# resumo do ajuste do W-nominate
+summary(result_total)
+```
+
+# Construção de medidas de performance dos ministros
+
+```{r}
+performance_ministros = result_total$legislators %>% 
+  select(magistratura, correctYea, wrongYea, wrongNay, correctNay, CC) %>% 
+  mutate(total = correctYea + wrongYea + wrongNay + correctNay,
+         acuracia = (correctYea + correctNay)/(total),
+         sensibilidade = correctYea/(correctYea + wrongNay),
+         especificidade = correctNay/(correctNay + wrongYea),
+         VPP = correctYea/(correctYea+wrongYea),
+         VPN = correctNay/(correctNay+wrongNay),
+         espec_compl = 1 - especificidade
+  ) %>% 
+  rownames_to_column(var = "ministro") %>% 
+  arrange(desc(espec_compl)) %>% 
+  na.omit()
+```
+  
+# Taxa de falsos positivos do modelo por ministro
+
+```{r}
+performance_ministros %>% 
+  ggplot(aes(x = reorder(ministro, -espec_compl), 
+             y = espec_compl)) + 
+  geom_col(fill = "dodgerblue") +
+  labs(title ="", y = "1-especificidade", x="Ministro") + 
+  geom_text(aes(label=round(espec_compl, 2)), vjust = -0.3, size=3.5) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+# Construir mapa dos pontos ideais de cada ministro
+
+```{r}
+proj_ministros = result_total$legislators %>% 
+  filter(!is.na(coord1D)) %>% 
+  select(ministro, 
+         X1 = coord1D, X2 = coord2D, X3 = coord3D,
+         magistratura, indicacao, politica) %>% 
+  as_tibble() %>% 
+  gather(key = "dim", value = "coord", starts_with('X')) %>% 
+  mutate(dim = as.factor(dim))
+``` 
+
+# Gráfico dos pontos ideais de cada ministro por indicação presidencial
+
+```{r message = FALSE, warning = FALSE}
+ggplot(proj_ministros, 
+       aes(x=dim, y=coord, fill=indicacao, colour=indicacao)) + 
+  geom_dotplot(binaxis='y', stackdir='center', stackratio=1, dotsize=0.5) +
+  labs(fill = "Indicação presidencial", colour = "Indicação presidencial")+
+  geom_text_repel(aes(label = ministro), size = 3, angle = 20)+
+  labs(title = " Coordenadas dos ministros por indicação presidencial", 
+       x = "dimensão", 
+       y = "coordenada")+
+  scale_x_discrete(limits=c("X3", "X2", "X1"))+
+  coord_flip()
+``` 
+
+# Gráfico dos pontos ideais de cada ministro por carreira pregressa
+
+```{r message = FALSE, warning = FALSE}
+p_magistratura = ggplot(proj_ministros, 
+       aes(x=dim, y=coord, fill=magistratura, colour=magistratura)) + 
+  geom_dotplot(binaxis='y', stackdir='center', stackratio=1, dotsize=0.5) +
+  labs(fill = "Magistratura", colour = "Magistratura")+
+  geom_text_repel(aes(label = ministro), size = 3, angle = 20)+
+  labs(title = " Coordenadas dos ministros por carreira na magistratura", 
+       x = "dimensão", 
+       y = "coordenada")+
+  scale_x_discrete(limits=c("X3", "X2", "X1"))+
+  coord_flip()
+
+p_politica = ggplot(proj_ministros, 
+       aes(x=dim, y=coord, fill=politica, colour=politica)) + 
+  geom_dotplot(binaxis='y', stackdir='center', stackratio=1, dotsize=0.5) +
+  labs(fill = "Carreira política", colour = "Carreira política")+
+  geom_text_repel(aes(label = ministro), size = 3, angle = 20)+
+  labs(title = " Coordenadas dos ministros por carreira política", 
+       x = "dimensão", 
+       y = "coordenada")+
+  scale_x_discrete(limits=c("X3", "X2", "X1"))+
+  coord_flip()
+
+p_magistratura/p_politica
+```
