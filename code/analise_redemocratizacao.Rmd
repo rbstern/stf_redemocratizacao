@@ -1,15 +1,17 @@
 ```{r message = FALSE, warnings = FALSE}
+library(igraph)
 library(ggrepel)
 library(gridExtra)
 library(patchwork)
 library(magrittr)
+library(randomcoloR)
 library(tidyverse)
 library(wnominate)
 ```
 
 # Codificação dos votos em VENCEDOR ou VENCIDO
 
-```{r}
+```{r message = FALSE}
 votos <- read_csv("../data/votos.csv")
 
 # AU (ministro ausente) -> AU
@@ -31,9 +33,68 @@ for(jj in 13:41)
 }
 ``` 
 
+# Análise de grafo de votos
+
+```{r message = FALSE}
+votos_g <- read_csv("../data/votos.csv")
+votos_g = votos_g[,13:41]
+classifica_presente = function(voto)
+{
+  case_when(voto == "AU" ~ 0,
+            voto == "NI" ~ 0,
+            TRUE ~ 1)
+}
+for(jj in 1:ncol(votos_g)) 
+{
+  votos_g[,jj] <- classifica_presente(unlist(votos_g[,jj]))
+}
+idx_ministros = which(colSums(votos_g) >= 11)
+
+aux = votos %>% 
+  select(names(idx_ministros)) %>% 
+  as.matrix()
+idx_votos = which(rowSums(aux == "VENCIDO") > 0)
+
+m_votos = votos_g[idx_votos, idx_ministros] %>% 
+  as.matrix()
+nomes_ministros = colnames(m_votos)
+ministros = nomes_ministros %>% gsub("[a-z]", "", .)
+n_ministros = length(ministros)
+adj_ministros = matrix(NA, 
+                         nrow = n_ministros, 
+                         ncol = n_ministros)
+for(ii in 1:n_ministros)
+{
+  for(jj in 1:n_ministros)
+  {
+    adj_ministros[ii, jj] = sum(m_votos[,ii]*m_votos[,jj])
+    adj_ministros[jj, ii] = adj_ministros[ii, jj]
+  }
+}
+rownames(adj_ministros) = ministros
+colnames(adj_ministros) = ministros
+
+grafo_ministros = (adj_ministros >= 11) %>% 
+  graph_from_adjacency_matrix(mode = "undirected",
+                              diag = FALSE)
+grafo_ministros %>% 
+  diameter(directed = FALSE)
+
+centralidade_ministro = (
+  grafo_ministros %>% 
+  eigen_centrality(directed = FALSE, scale = TRUE)
+)$vector
+
+cores = heat.colors(6)[cut(centralidade_ministro, 6)]
+plot(grafo_ministros, 
+     vertex.size = 20,
+     vertex.shape = "rectangle",
+     vertex.color = cores)
+```
+
 # Preparo dos dados para uso do W-nominate
 
-```{r}
+```{r message = FALSE}
 # Transforma dados em variáveis categóricas
 for(jj in c(2,4,7:41)) votos[,jj] <- votos[,jj] %>%  unlist() %>% as.factor()
 
@@ -48,10 +109,10 @@ legis_data <- read_csv("../data/legis_data.csv") %>%
   as.matrix()
 ```
 
-# Ajuste do R-nominate
+# Ajuste do W-nominate
 
-```{r}
-votacoes <-matrix(votos$RP, 1, length(votos$RP))
+```{r message = FALSE}
+votacoes <- matrix(votos$RP, 1, length(votos$RP))
 rc_total <- rollcall(m_votos, 
                      yea = c("VENCEDOR"), 
                      nay = c("VENCIDO"),
@@ -76,7 +137,7 @@ summary(result_total)
 
 # Construção de medidas de performance dos ministros
 
-```{r}
+```{r message = FALSE}
 performance_ministros = result_total$legislators %>% 
   select(magistratura, correctYea, wrongYea, wrongNay, correctNay, CC) %>% 
   mutate(total = correctYea + wrongYea + wrongNay + correctNay,
@@ -94,7 +155,7 @@ performance_ministros = result_total$legislators %>%
   
 # Taxa de falsos positivos do modelo por ministro
 
-```{r}
+```{r message = FALSE}
 performance_ministros %>% 
   ggplot(aes(x = reorder(ministro, -espec_compl), 
              y = espec_compl)) + 
@@ -106,7 +167,7 @@ performance_ministros %>%
 
 # Construir mapa dos pontos ideais de cada ministro
 
-```{r}
+```{r message = FALSE}
 proj_ministros = result_total$legislators %>% 
   filter(!is.na(coord1D)) %>% 
   select(ministro, 
